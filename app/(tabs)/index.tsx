@@ -14,7 +14,9 @@ import {
 import MapView, { Marker, Region } from 'react-native-maps';
 import type { LongPressEvent } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { initDatabase, insertLugar, getLugares, deleteLugar, Lugar } from '@/lib/database';
+import { initDatabase, insertLugar, getLugares, deleteLugar, toggleFavorito, Lugar } from '@/lib/database';
+import LocationsButton from '@/components/ui/LocationsButton';
+import LocationsDropdown from '@/components/ui/LocationsDropdown';
 
 const DEFAULT_REGION: Region = {
   latitude: 4.711,
@@ -24,13 +26,14 @@ const DEFAULT_REGION: Region = {
 };
 
 export default function MapScreen() {
-  const [region, setRegion] = useState<Region>(DEFAULT_REGION);
   const [lugares, setLugares] = useState<Lugar[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [nombre, setNombre] = useState('');
   const [selectedCoord, setSelectedCoord] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dropdownVisible, setDropdownVisible] = useState(false);
   const locationSub = useRef<Location.LocationSubscription | null>(null);
+  const mapRef = useRef<MapView>(null);
 
   useEffect(() => {
     initDatabase();
@@ -63,12 +66,12 @@ export default function MapScreen() {
         accuracy: Location.Accuracy.Balanced,
       });
 
-      setRegion({
+      mapRef.current?.animateToRegion({
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
         latitudeDelta: 0.0922,
         longitudeDelta: 0.0421,
-      });
+      }, 800);
     } catch {
       Alert.alert('Error', 'No se pudo obtener la ubicación actual.');
     } finally {
@@ -97,6 +100,20 @@ export default function MapScreen() {
     setSelectedCoord(null);
   }
 
+  function handleToggleFavorito(lugar: Lugar) {
+    toggleFavorito(lugar.id, lugar.favorito === 1 ? 0 : 1);
+    cargarLugares();
+  }
+
+  function handleSelectLugar(lugar: Lugar) {
+    mapRef.current?.animateToRegion({
+      latitude: lugar.latitud,
+      longitude: lugar.longitud,
+      latitudeDelta: 0.01,
+      longitudeDelta: 0.01,
+    }, 600);
+  }
+
   function handleEliminar(id: number, nombreLugar: string) {
     Alert.alert('Eliminar lugar', `¿Eliminar "${nombreLugar}"?`, [
       { text: 'Cancelar', style: 'cancel' },
@@ -123,9 +140,9 @@ export default function MapScreen() {
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         style={styles.map}
-        region={region}
-        onRegionChangeComplete={setRegion}
+        initialRegion={DEFAULT_REGION}
         onLongPress={handleLongPress}
         showsUserLocation
         showsMyLocationButton
@@ -140,6 +157,22 @@ export default function MapScreen() {
           />
         ))}
       </MapView>
+
+      <View style={styles.topBar}>
+        <LocationsButton
+          count={lugares.length}
+          open={dropdownVisible}
+          onPress={() => setDropdownVisible((v) => !v)}
+        />
+      </View>
+
+      <LocationsDropdown
+        visible={dropdownVisible}
+        lugares={lugares}
+        onSelect={handleSelectLugar}
+        onToggleFavorito={handleToggleFavorito}
+        onClose={() => setDropdownVisible(false)}
+      />
 
       <View style={styles.hint}>
         <Text style={styles.hintText}>Mantén presionado el mapa para agregar un lugar</Text>
@@ -204,6 +237,13 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: 16,
     color: '#555',
+  },
+  topBar: {
+    position: 'absolute',
+    top: 56,
+    left: 16,
+    right: 16,
+    zIndex: 10,
   },
   hint: {
     position: 'absolute',
