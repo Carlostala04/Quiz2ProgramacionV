@@ -7,6 +7,7 @@ export type Lugar = {
   nombre: string;
   latitud: number;
   longitud: number;
+  foto: string | null;
 };
 
 export function initDatabase(): void {
@@ -15,18 +16,26 @@ export function initDatabase(): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       nombre TEXT NOT NULL,
       latitud REAL NOT NULL,
-      longitud REAL NOT NULL
+      longitud REAL NOT NULL,
+      foto TEXT
     );
   `);
+  try {
+    db.execSync('ALTER TABLE lugares ADD COLUMN foto TEXT;');
+  } catch {
+    // columna ya existe
+  }
 }
 
-export function insertLugar(nombre: string, latitud: number, longitud: number): void {
+export function insertLugar(nombre: string, latitud: number, longitud: number, foto: string | null = null): void {
   db.runSync(
-    'INSERT INTO lugares (nombre, latitud, longitud) VALUES (?, ?, ?)',
-    nombre,
-    latitud,
-    longitud
+    'INSERT INTO lugares (nombre, latitud, longitud, foto) VALUES (?, ?, ?, ?)',
+    nombre, latitud, longitud, foto
   );
+}
+
+export function updateFoto(id: number, foto: string | null): void {
+  db.runSync('UPDATE lugares SET foto = ? WHERE id = ?', foto, id);
 }
 
 export function getLugares(): Lugar[] {
