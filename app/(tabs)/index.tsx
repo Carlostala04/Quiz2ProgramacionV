@@ -11,6 +11,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+<<<<<<< Updated upstream
+=======
+  ScrollView,
+>>>>>>> Stashed changes
 } from 'react-native';
 import MapView, { Marker, Region } from 'react-native-maps';
 import type { LongPressEvent } from 'react-native-maps';
@@ -29,7 +33,11 @@ export default function MapScreen() {
   const [region, setRegion] = useState<Region>(DEFAULT_REGION);
   const [lugares, setLugares] = useState<Lugar[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
+<<<<<<< Updated upstream
   const [detalleModal, setDetalleModal] = useState<Lugar | null>(null);
+=======
+  const [fotoModal, setFotoModal] = useState<Lugar | null>(null);
+>>>>>>> Stashed changes
   const [nombre, setNombre] = useState('');
   const [fotoUri, setFotoUri] = useState<string | null>(null);
   const [selectedCoord, setSelectedCoord] = useState<{ lat: number; lng: number } | null>(null);
@@ -40,7 +48,14 @@ export default function MapScreen() {
     initDatabase();
     cargarLugares();
     obtenerUbicacion();
+<<<<<<< Updated upstream
     return () => { locationSub.current?.remove(); };
+=======
+
+    return () => {
+      locationSub.current?.remove();
+    };
+>>>>>>> Stashed changes
   }, []);
 
   function cargarLugares() {
@@ -72,6 +87,7 @@ export default function MapScreen() {
     setModalVisible(true);
   }
 
+<<<<<<< Updated upstream
   async function abrirSelectorFoto(onResult: (uri: string) => void) {
     Alert.alert('Agregar foto', 'Elige una opción', [
       {
@@ -99,6 +115,57 @@ export default function MapScreen() {
   function handleGuardar() {
     if (!nombre.trim()) { Alert.alert('Error', 'Ingresa un nombre para el lugar.'); return; }
     if (!selectedCoord) return;
+=======
+  async function handleSeleccionarFoto(fuente: 'camara' | 'galeria') {
+    let result: ImagePicker.ImagePickerResult;
+
+    if (fuente === 'camara') {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permiso denegado', 'Se necesita acceso a la cámara.');
+        return;
+      }
+      result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7,
+      });
+    } else {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permiso denegado', 'Se necesita acceso a la galería.');
+        return;
+      }
+      result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7,
+      });
+    }
+
+    if (!result.canceled && result.assets[0]) {
+      setFotoUri(result.assets[0].uri);
+    }
+  }
+
+  function mostrarOpcionesFoto() {
+    Alert.alert('Agregar foto', 'Elige una opción', [
+      { text: 'Cámara', onPress: () => handleSeleccionarFoto('camara') },
+      { text: 'Galería', onPress: () => handleSeleccionarFoto('galeria') },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  }
+
+  function handleGuardar() {
+    if (!nombre.trim()) {
+      Alert.alert('Error', 'Ingresa un nombre para el lugar.');
+      return;
+    }
+    if (!selectedCoord) return;
+
+>>>>>>> Stashed changes
     insertLugar(nombre.trim(), selectedCoord.lat, selectedCoord.lng, fotoUri);
     cargarLugares();
     setModalVisible(false);
@@ -111,10 +178,57 @@ export default function MapScreen() {
     Alert.alert('Eliminar lugar', `¿Eliminar "${lugar.nombre}"?`, [
       { text: 'Cancelar', style: 'cancel' },
       {
+<<<<<<< Updated upstream
         text: 'Eliminar', style: 'destructive',
         onPress: () => { deleteLugar(lugar.id); cargarLugares(); setDetalleModal(null); },
+=======
+        text: 'Eliminar',
+        style: 'destructive',
+        onPress: () => {
+          deleteLugar(lugar.id);
+          cargarLugares();
+        },
+>>>>>>> Stashed changes
       },
     ]);
+  }
+
+  async function handleCambiarFoto(lugar: Lugar) {
+    Alert.alert('Foto del lugar', 'Elige una opción', [
+      {
+        text: 'Cámara',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') { Alert.alert('Permiso denegado', 'Se necesita acceso a la cámara.'); return; }
+          const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.7 });
+          if (!result.canceled && result.assets[0]) {
+            updateFoto(lugar.id, result.assets[0].uri);
+            const updated = { ...lugar, foto: result.assets[0].uri };
+            setFotoModal(updated);
+            cargarLugares();
+          }
+        },
+      },
+      {
+        text: 'Galería',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (status !== 'granted') { Alert.alert('Permiso denegado', 'Se necesita acceso a la galería.'); return; }
+          const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.7 });
+          if (!result.canceled && result.assets[0]) {
+            updateFoto(lugar.id, result.assets[0].uri);
+            const updated = { ...lugar, foto: result.assets[0].uri };
+            setFotoModal(updated);
+            cargarLugares();
+          }
+        },
+      },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  }
+
+  function handleCalloutPress(lugar: Lugar) {
+    setFotoModal(lugar);
   }
 
   if (loading) {
@@ -141,6 +255,7 @@ export default function MapScreen() {
             key={lugar.id}
             coordinate={{ latitude: lugar.latitud, longitude: lugar.longitud }}
             title={lugar.nombre}
+<<<<<<< Updated upstream
             description="Toca para ver detalles"
             onCalloutPress={() => setDetalleModal(lugar)}
           >
@@ -150,6 +265,11 @@ export default function MapScreen() {
               </View>
             ) : undefined}
           </Marker>
+=======
+            description={lugar.foto ? '📷 Toca para ver la foto' : 'Toca para eliminar'}
+            onCalloutPress={() => handleCalloutPress(lugar)}
+          />
+>>>>>>> Stashed changes
         ))}
       </MapView>
 
@@ -157,10 +277,26 @@ export default function MapScreen() {
         <Text style={styles.hintText}>Mantén presionado el mapa para agregar un lugar</Text>
       </View>
 
+<<<<<<< Updated upstream
       {/* Modal: nuevo lugar */}
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalCard}>
+=======
+      {/* Modal: crear nuevo lugar */}
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContainer}>
+          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+>>>>>>> Stashed changes
             <Text style={styles.modalTitle}>Nuevo lugar favorito</Text>
 
             {/* Foto arriba — visible directamente si ya fue asignada */}
@@ -197,7 +333,26 @@ export default function MapScreen() {
               onSubmitEditing={handleGuardar}
             />
 
+<<<<<<< Updated upstream
             {/* Botones */}
+=======
+            {/* Sección de foto */}
+            <TouchableOpacity style={styles.photoButton} onPress={mostrarOpcionesFoto}>
+              <Text style={styles.photoButtonText}>
+                {fotoUri ? '📷 Cambiar foto' : '📷 Agregar foto (opcional)'}
+              </Text>
+            </TouchableOpacity>
+
+            {fotoUri && (
+              <View style={styles.previewContainer}>
+                <Image source={{ uri: fotoUri }} style={styles.previewImage} />
+                <TouchableOpacity style={styles.removePhoto} onPress={() => setFotoUri(null)}>
+                  <Text style={styles.removePhotoText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+>>>>>>> Stashed changes
             <View style={styles.buttonRow}>
               <TouchableOpacity style={[styles.button, styles.cancelButton]} onPress={() => setModalVisible(false)}>
                 <Text style={styles.cancelText}>Cancelar</Text>
@@ -206,10 +361,12 @@ export default function MapScreen() {
                 <Text style={styles.saveText}>Guardar</Text>
               </TouchableOpacity>
             </View>
+          </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
+<<<<<<< Updated upstream
       {/* Modal: detalle de lugar guardado */}
       <Modal visible={!!detalleModal} transparent animationType="fade" onRequestClose={() => setDetalleModal(null)}>
         <View style={styles.modalOverlay}>
@@ -246,6 +403,42 @@ export default function MapScreen() {
                 <Text style={styles.cancelText}>Cerrar</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.button, { backgroundColor: '#FF3B30' }]} onPress={() => detalleModal && handleEliminar(detalleModal)}>
+=======
+      {/* Modal: ver/editar foto de lugar guardado */}
+      <Modal
+        visible={!!fotoModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFotoModal(null)}
+      >
+        <View style={styles.fotoOverlay}>
+          <View style={styles.fotoContainer}>
+            <Text style={styles.fotoTitle}>{fotoModal?.nombre}</Text>
+            {fotoModal?.foto
+              ? <Image source={{ uri: fotoModal.foto }} style={styles.fotoFullImage} resizeMode="cover" />
+              : <View style={styles.fotoPlaceholder}><Text style={styles.fotoPlaceholderText}>Sin foto</Text></View>
+            }
+            <TouchableOpacity style={styles.photoButton} onPress={() => fotoModal && handleCambiarFoto(fotoModal)}>
+              <Text style={styles.photoButtonText}>
+                {fotoModal?.foto ? '📷 Cambiar foto' : '📷 Agregar foto'}
+              </Text>
+            </TouchableOpacity>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity
+                style={[styles.button, styles.cancelButton]}
+                onPress={() => setFotoModal(null)}
+              >
+                <Text style={styles.cancelText}>Cerrar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.button, { backgroundColor: '#FF3B30' }]}
+                onPress={() => {
+                  const lugar = fotoModal!;
+                  setFotoModal(null);
+                  handleEliminar(lugar);
+                }}
+              >
+>>>>>>> Stashed changes
                 <Text style={styles.saveText}>Eliminar</Text>
               </TouchableOpacity>
             </View>
@@ -272,13 +465,22 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 24,
+<<<<<<< Updated upstream
     backgroundColor: 'rgba(0,0,0,0.5)',
+=======
+    backgroundColor: 'rgba(0,0,0,0.4)',
+>>>>>>> Stashed changes
   },
   modalCard: {
     backgroundColor: '#fff',
     borderRadius: 24,
+<<<<<<< Updated upstream
     padding: 28,
     gap: 18,
+=======
+    padding: 32,
+    gap: 24,
+>>>>>>> Stashed changes
   },
   modalTitle: {
     fontSize: 22,
@@ -398,15 +600,66 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9f9f9',
     color: '#1a1a1a',
   },
+<<<<<<< Updated upstream
 
   cambiarFotoBtn: {
     borderWidth: 1,
     borderColor: '#007AFF',
     borderRadius: 12,
     paddingVertical: 14,
+=======
+  photoButton: {
+    borderWidth: 1,
+    borderColor: '#007AFF',
+    borderRadius: 10,
+    paddingVertical: 12,
     alignItems: 'center',
     backgroundColor: '#f0f8ff',
   },
+  photoButtonText: {
+    color: '#007AFF',
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  previewContainer: {
+    position: 'relative',
+    alignSelf: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    height: 180,
+    borderRadius: 10,
+  },
+  removePhoto: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 14,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  removePhotoText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 12,
+  },
+  button: {
+    flex: 1,
+    paddingVertical: 18,
+    borderRadius: 12,
+>>>>>>> Stashed changes
+    alignItems: 'center',
+    backgroundColor: '#f0f8ff',
+  },
+<<<<<<< Updated upstream
   cambiarFotoText: { color: '#007AFF', fontSize: 15, fontWeight: '500' },
 
   buttonRow: { flexDirection: 'row', gap: 16, marginTop: 4 },
@@ -415,4 +668,59 @@ const styles = StyleSheet.create({
   saveButton: { backgroundColor: '#007AFF' },
   cancelText: { color: '#555', fontSize: 16, fontWeight: '500' },
   saveText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+=======
+  cancelButton: {
+    backgroundColor: '#f0f0f0',
+  },
+  saveButton: {
+    backgroundColor: '#007AFF',
+  },
+  cancelText: {
+    color: '#555',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  saveText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  fotoOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  fotoContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 20,
+    width: '100%',
+    gap: 16,
+  },
+  fotoTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    textAlign: 'center',
+  },
+  fotoFullImage: {
+    width: '100%',
+    height: 280,
+    borderRadius: 12,
+  },
+  fotoPlaceholder: {
+    width: '100%',
+    height: 140,
+    borderRadius: 12,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fotoPlaceholderText: {
+    color: '#aaa',
+    fontSize: 15,
+  },
+>>>>>>> Stashed changes
 });
