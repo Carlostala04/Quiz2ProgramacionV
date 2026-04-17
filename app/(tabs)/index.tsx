@@ -27,6 +27,9 @@ import {
 import type { LongPressEvent } from "react-native-maps";
 import MapView, { Marker, Region } from "react-native-maps";
 
+/**
+ * Región inicial por defecto (Bogotá, Colombia) si no se obtiene la ubicación.
+ */
 const DEFAULT_REGION: Region = {
   latitude: 4.711,
   longitude: -74.0721,
@@ -34,7 +37,9 @@ const DEFAULT_REGION: Region = {
   longitudeDelta: 0.0421,
 };
 
-// Colores asignados a cada marcador según su índice
+/**
+ * Colores asignados a cada marcador según su índice para diferenciarlos visualmente.
+ */
 const MARKER_COLORS = [
   "#FF3B30",
   "#34C759",
@@ -48,32 +53,48 @@ const MARKER_COLORS = [
 
 type FiltroTab = "todos" | "favoritos";
 
+/**
+ * Pantalla principal que muestra el mapa y gestiona los lugares favoritos.
+ */
 export default function MapScreen() {
-  const [lugares, setLugares] = useState<Lugar[]>([]);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [detalleModal, setDetalleModal] = useState<Lugar | null>(null);
-  const [nombre, setNombre] = useState("");
-  const [fotoUri, setFotoUri] = useState<string | null>(null);
-  const [selectedCoord, setSelectedCoord] = useState<{ lat: number; lng: number } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [dropdownVisible, setDropdownVisible] = useState(false);
-  const [filtroTab, setFiltroTab] = useState<FiltroTab>("todos");
+  // --- ESTADO ---
+  const [lugares, setLugares] = useState<Lugar[]>([]); // Lista de lugares desde la DB
+  const [modalVisible, setModalVisible] = useState(false); // Modal para agregar nuevo lugar
+  const [detalleModal, setDetalleModal] = useState<Lugar | null>(null); // Modal de detalles de un lugar
+  const [nombre, setNombre] = useState(""); // Nombre del nuevo lugar
+  const [fotoUri, setFotoUri] = useState<string | null>(null); // URI de la foto para el nuevo lugar
+  const [selectedCoord, setSelectedCoord] = useState<{ lat: number; lng: number } | null>(null); // Coordenadas seleccionadas en el mapa
+  const [loading, setLoading] = useState(true); // Estado de carga inicial (ubicación)
+  const [dropdownVisible, setDropdownVisible] = useState(false); // Visibilidad del panel "Mis lugares"
+  const [filtroTab, setFiltroTab] = useState<FiltroTab>("todos"); // Filtro actual del dropdown
+  
+  // Referencias para suscripciones y el componente MapView
   const locationSub = useRef<Location.LocationSubscription | null>(null);
   const mapRef = useRef<MapView>(null);
 
+  /**
+   * Inicialización: Base de datos, carga de datos y obtención de ubicación.
+   */
   useEffect(() => {
     initDatabase();
     cargarLugares();
     obtenerUbicacion();
+    // Limpieza de la suscripción de ubicación al desmontar el componente
     return () => {
       locationSub.current?.remove();
     };
   }, []);
 
+  /**
+   * Obtiene los lugares de la base de datos y actualiza el estado local.
+   */
   function cargarLugares() {
     setLugares(getLugares());
   }
 
+  /**
+   * Solicita permisos y comienza a vigilar la ubicación del usuario.
+   */
   async function obtenerUbicacion() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -86,10 +107,12 @@ export default function MapScreen() {
         return;
       }
 
+      // Suscripción a cambios de ubicación en tiempo real
       locationSub.current = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 5 },
         (loc) => {
           setLoading(false);
+          // Anima el mapa hacia la ubicación actual del usuario
           mapRef.current?.animateToRegion(
             {
               latitude: loc.coords.latitude,
@@ -107,6 +130,9 @@ export default function MapScreen() {
     }
   }
 
+  /**
+   * Maneja la pulsación larga en el mapa para iniciar la creación de un nuevo lugar.
+   */
   function handleLongPress(event: LongPressEvent) {
     const { latitude, longitude } = event.nativeEvent.coordinate;
     setSelectedCoord({ lat: latitude, lng: longitude });
@@ -115,6 +141,9 @@ export default function MapScreen() {
     setModalVisible(true);
   }
 
+  /**
+   * Abre un diálogo para elegir entre tomar una foto con la cámara o elegir de la galería.
+   */
   async function abrirSelectorFoto(onResult: (uri: string) => void) {
     Alert.alert("Agregar foto", "Elige una opción", [
       {
@@ -155,6 +184,9 @@ export default function MapScreen() {
     ]);
   }
 
+  /**
+   * Guarda el nuevo lugar en la base de datos y refresca la lista.
+   */
   function handleGuardar() {
     if (!nombre.trim()) {
       Alert.alert("Error", "Ingresa un nombre para el lugar.");
@@ -169,6 +201,9 @@ export default function MapScreen() {
     setSelectedCoord(null);
   }
 
+  /**
+   * Cambia el estado de favorito de un lugar y actualiza la UI.
+   */
   function handleToggleFavorito(lugar: Lugar) {
     const nuevoValor = lugar.favorito === 1 ? 0 : 1;
     toggleFavorito(lugar.id, nuevoValor);
@@ -177,6 +212,9 @@ export default function MapScreen() {
     cargarLugares();
   }
 
+  /**
+   * Elimina un lugar tras confirmar con el usuario.
+   */
   function handleEliminar(lugar: Lugar) {
     Alert.alert("Eliminar lugar", `¿Eliminar "${lugar.nombre}"?`, [
       { text: "Cancelar", style: "cancel" },
@@ -192,11 +230,13 @@ export default function MapScreen() {
     ]);
   }
 
+  // --- LÓGICA DE FILTRADO Y CONTEO ---
   const lugaresFiltrados =
     filtroTab === "favoritos" ? lugares.filter((l) => l.favorito === 1) : lugares;
 
   const totalFavoritos = lugares.filter((l) => l.favorito === 1).length;
 
+  // Renderizado de pantalla de carga
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -208,6 +248,7 @@ export default function MapScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Componente de Mapa */}
       <MapView
         ref={mapRef}
         style={styles.map}
@@ -216,6 +257,7 @@ export default function MapScreen() {
         showsUserLocation
         showsMyLocationButton
       >
+        {/* Renderizado de marcadores guardados */}
         {lugares.map((lugar, index) => {
           const color = MARKER_COLORS[index % MARKER_COLORS.length];
           return (
@@ -227,6 +269,7 @@ export default function MapScreen() {
               onCalloutPress={() => setDetalleModal(lugar)}
               anchor={{ x: 0.5, y: 1 }}
             >
+              {/* Diseño personalizado del marcador */}
               <View style={styles.markerWrapper}>
                 {lugar.foto ? (
                   <View style={[styles.markerContainer, { borderColor: color }]}>
@@ -255,14 +298,14 @@ export default function MapScreen() {
         })}
       </MapView>
 
-      {/* Hint inferior */}
+      {/* Indicación flotante inferior */}
       <View style={styles.hint}>
         <Text style={styles.hintText}>
           Mantén presionado el mapa para agregar un lugar
         </Text>
       </View>
 
-      {/* Panel superior: dropdown de lugares */}
+      {/* Panel superior desplegable: Lista de lugares */}
       <View style={styles.dropdownWrapper}>
         <TouchableOpacity
           style={styles.dropdownToggle}
@@ -284,9 +327,10 @@ export default function MapScreen() {
           <Text style={styles.dropdownArrow}>{dropdownVisible ? "▲" : "▼"}</Text>
         </TouchableOpacity>
 
+        {/* Lista desplegable con filtros */}
         {dropdownVisible && (
           <View style={styles.dropdownList}>
-            {/* Tabs Todos / Favoritos */}
+            {/* Tabs de navegación dentro del dropdown */}
             <View style={styles.tabRow}>
               <TouchableOpacity
                 style={[styles.tabBtn, filtroTab === "todos" && styles.tabBtnActive]}
@@ -306,6 +350,7 @@ export default function MapScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* Lista de lugares filtrados */}
             <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
               {lugaresFiltrados.length === 0 ? (
                 <View style={styles.dropdownEmptyContainer}>
@@ -328,6 +373,7 @@ export default function MapScreen() {
                       activeOpacity={0.7}
                       onPress={() => {
                         setDropdownVisible(false);
+                        // Navega a la ubicación del lugar seleccionado
                         mapRef.current?.animateToRegion(
                           {
                             latitude: lugar.latitud,
@@ -375,7 +421,7 @@ export default function MapScreen() {
         )}
       </View>
 
-      {/* Modal: agregar nuevo lugar */}
+      {/* MODAL: Formulario para agregar nuevo lugar */}
       <Modal
         visible={modalVisible}
         transparent
@@ -394,6 +440,7 @@ export default function MapScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* Sección de Foto */}
             {fotoUri ? (
               <View style={styles.fotoAsignadaContainer}>
                 <Image source={{ uri: fotoUri }} style={styles.fotoAsignada} resizeMode="cover" />
@@ -425,6 +472,7 @@ export default function MapScreen() {
               </TouchableOpacity>
             )}
 
+            {/* Input de Nombre */}
             <TextInput
               style={styles.input}
               placeholder="Nombre del lugar"
@@ -436,6 +484,7 @@ export default function MapScreen() {
               onSubmitEditing={handleGuardar}
             />
 
+            {/* Botones de acción */}
             <View style={styles.buttonRow}>
               <TouchableOpacity
                 style={[styles.button, styles.cancelButton]}
@@ -454,7 +503,7 @@ export default function MapScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Modal: detalle de lugar guardado */}
+      {/* MODAL: Detalle de un lugar guardado */}
       <Modal
         visible={!!detalleModal}
         transparent
@@ -495,7 +544,7 @@ export default function MapScreen() {
               </Text>
             </View>
 
-            {/* Foto */}
+            {/* Imagen del detalle */}
             {detalleModal?.foto ? (
               <Image
                 source={{ uri: detalleModal.foto }}
@@ -511,7 +560,7 @@ export default function MapScreen() {
               </View>
             )}
 
-            {/* Botón cambiar/agregar foto */}
+            {/* Botón para cambiar o agregar foto al detalle */}
             <TouchableOpacity
               style={styles.cambiarFotoBtn}
               onPress={() =>
@@ -528,7 +577,7 @@ export default function MapScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* Botones Cerrar / Eliminar */}
+            {/* Botones de control del detalle */}
             <View style={styles.buttonRow}>
               <TouchableOpacity
                 style={[styles.button, styles.cancelButton]}
