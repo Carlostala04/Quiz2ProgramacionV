@@ -26,7 +26,6 @@ const DEFAULT_REGION: Region = {
 };
 
 export default function MapScreen() {
-  const [region, setRegion] = useState<Region>(DEFAULT_REGION);
   const [lugares, setLugares] = useState<Lugar[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [detalleModal, setDetalleModal] = useState<Lugar | null>(null);
@@ -34,7 +33,9 @@ export default function MapScreen() {
   const [fotoUri, setFotoUri] = useState<string | null>(null);
   const [selectedCoord, setSelectedCoord] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dropdownVisible, setDropdownVisible] = useState(false);
   const locationSub = useRef<Location.LocationSubscription | null>(null);
+  const mapRef = useRef<MapView>(null);
 
   useEffect(() => {
     initDatabase();
@@ -56,7 +57,12 @@ export default function MapScreen() {
         return;
       }
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setRegion({ latitude: loc.coords.latitude, longitude: loc.coords.longitude, latitudeDelta: 0.0922, longitudeDelta: 0.0421 });
+      mapRef.current?.animateToRegion({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+        latitudeDelta: 0.0922,
+        longitudeDelta: 0.0421,
+      }, 800);
     } catch {
       Alert.alert('Error', 'No se pudo obtener la ubicación actual.');
     } finally {
@@ -129,9 +135,9 @@ export default function MapScreen() {
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         style={styles.map}
-        region={region}
-        onRegionChangeComplete={setRegion}
+        initialRegion={DEFAULT_REGION}
         onLongPress={handleLongPress}
         showsUserLocation
         showsMyLocationButton
@@ -264,7 +270,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 8,
   },
   hintText: { color: '#fff', fontSize: 13 },
-
   modalOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -283,7 +288,6 @@ const styles = StyleSheet.create({
     color: '#1a1a1a',
     marginBottom: 4,
   },
-
   markerContainer: {
     width: 60,
     height: 60,
@@ -301,7 +305,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-
   fotoAsignadaContainer: {
     width: '100%',
     gap: 8,
@@ -330,7 +333,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#333',
   },
-
   fotoSlot: {
     width: '100%',
     height: 160,
@@ -349,13 +351,11 @@ const styles = StyleSheet.create({
   },
   fotoIcono: { fontSize: 32 },
   fotoPlaceholderText: { color: '#aaa', fontSize: 14 },
-
   fotoDetalle: {
     width: '100%',
     height: 200,
     borderRadius: 14,
   },
-
   cambiarFotoBtn: {
     borderWidth: 1,
     borderColor: '#007AFF',
@@ -365,7 +365,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f8ff',
   },
   cambiarFotoText: { color: '#007AFF', fontSize: 15, fontWeight: '500' },
-
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -376,7 +375,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f9f9f9',
     color: '#1a1a1a',
   },
-
   buttonRow: { flexDirection: 'row', gap: 16, marginTop: 4 },
   button: { flex: 1, paddingVertical: 18, borderRadius: 12, alignItems: 'center' },
   cancelButton: { backgroundColor: '#f0f0f0' },
