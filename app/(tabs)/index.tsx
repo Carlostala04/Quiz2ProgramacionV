@@ -4,6 +4,7 @@ import {
   initDatabase,
   insertLugar,
   Lugar,
+  toggleFavorito,
   updateFoto,
 } from "@/lib/database";
 import * as ImagePicker from "expo-image-picker";
@@ -16,6 +17,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -32,16 +34,19 @@ const DEFAULT_REGION: Region = {
   longitudeDelta: 0.0421,
 };
 
+// Colores asignados a cada marcador según su índice
 const MARKER_COLORS = [
-  "red",
-  "green",
-  "blue",
-  "violet",
-  "yellow",
-  "coral",
-  "azure",
-  "tomato",
+  "#FF3B30",
+  "#34C759",
+  "#007AFF",
+  "#AF52DE",
+  "#FF9500",
+  "#FF2D55",
+  "#5AC8FA",
+  "#FFCC00",
 ];
+
+type FiltroTab = "todos" | "favoritos";
 
 export default function MapScreen() {
   const [lugares, setLugares] = useState<Lugar[]>([]);
@@ -49,12 +54,10 @@ export default function MapScreen() {
   const [detalleModal, setDetalleModal] = useState<Lugar | null>(null);
   const [nombre, setNombre] = useState("");
   const [fotoUri, setFotoUri] = useState<string | null>(null);
-  const [selectedCoord, setSelectedCoord] = useState<{
-    lat: number;
-    lng: number;
-  } | null>(null);
+  const [selectedCoord, setSelectedCoord] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [dropdownVisible, setDropdownVisible] = useState(false);
+  const [filtroTab, setFiltroTab] = useState<FiltroTab>("todos");
   const locationSub = useRef<Location.LocationSubscription | null>(null);
   const mapRef = useRef<MapView>(null);
 
@@ -77,26 +80,29 @@ export default function MapScreen() {
       if (status !== "granted") {
         Alert.alert(
           "Permisos denegados",
-          "No se pudo acceder a tu ubicación. El mapa usará una ubicación por defecto.",
+          "No se pudo acceder a tu ubicación. El mapa usará una ubicación por defecto."
         );
         setLoading(false);
         return;
       }
-      const loc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      mapRef.current?.animateToRegion(
-        {
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          latitudeDelta: 0.0922,
-          longitudeDelta: 0.0421,
-        },
-        800,
+
+      locationSub.current = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.High, timeInterval: 3000, distanceInterval: 5 },
+        (loc) => {
+          setLoading(false);
+          mapRef.current?.animateToRegion(
+            {
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+              latitudeDelta: 0.0922,
+              longitudeDelta: 0.0421,
+            },
+            800
+          );
+        }
       );
     } catch {
       Alert.alert("Error", "No se pudo obtener la ubicación actual.");
-    } finally {
       setLoading(false);
     }
   }
@@ -125,15 +131,13 @@ export default function MapScreen() {
             aspect: [4, 3],
             quality: 0.7,
           });
-          if (!result.canceled && result.assets[0])
-            onResult(result.assets[0].uri);
+          if (!result.canceled && result.assets[0]) onResult(result.assets[0].uri);
         },
       },
       {
         text: "Galería",
         onPress: async () => {
-          const { status } =
-            await ImagePicker.requestMediaLibraryPermissionsAsync();
+          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (status !== "granted") {
             Alert.alert("Permiso denegado", "Se necesita acceso a la galería.");
             return;
@@ -144,8 +148,7 @@ export default function MapScreen() {
             aspect: [4, 3],
             quality: 0.7,
           });
-          if (!result.canceled && result.assets[0])
-            onResult(result.assets[0].uri);
+          if (!result.canceled && result.assets[0]) onResult(result.assets[0].uri);
         },
       },
       { text: "Cancelar", style: "cancel" },
@@ -166,6 +169,14 @@ export default function MapScreen() {
     setSelectedCoord(null);
   }
 
+  function handleToggleFavorito(lugar: Lugar) {
+    const nuevoValor = lugar.favorito === 1 ? 0 : 1;
+    toggleFavorito(lugar.id, nuevoValor);
+    const actualizado = { ...lugar, favorito: nuevoValor };
+    setDetalleModal(actualizado);
+    cargarLugares();
+  }
+
   function handleEliminar(lugar: Lugar) {
     Alert.alert("Eliminar lugar", `¿Eliminar "${lugar.nombre}"?`, [
       { text: "Cancelar", style: "cancel" },
@@ -180,6 +191,11 @@ export default function MapScreen() {
       },
     ]);
   }
+
+  const lugaresFiltrados =
+    filtroTab === "favoritos" ? lugares.filter((l) => l.favorito === 1) : lugares;
+
+  const totalFavoritos = lugares.filter((l) => l.favorito === 1).length;
 
   if (loading) {
     return (
@@ -200,35 +216,166 @@ export default function MapScreen() {
         showsUserLocation
         showsMyLocationButton
       >
-        {lugares.map((lugar, index) => (
-          <Marker
-            key={lugar.id}
-            coordinate={{ latitude: lugar.latitud, longitude: lugar.longitud }}
-            title={lugar.nombre}
-            description="Toca para ver detalles"
-            onCalloutPress={() => setDetalleModal(lugar)}
-            pinColor={MARKER_COLORS[index % MARKER_COLORS.length]}
-          >
-            {lugar.foto ? (
-              <View style={styles.markerContainer}>
-                <Image
-                  source={{ uri: lugar.foto }}
-                  style={styles.markerImage}
-                  resizeMode="cover"
-                />
+        {lugares.map((lugar, index) => {
+          const color = MARKER_COLORS[index % MARKER_COLORS.length];
+          return (
+            <Marker
+              key={lugar.id}
+              coordinate={{ latitude: lugar.latitud, longitude: lugar.longitud }}
+              title={lugar.nombre}
+              description={lugar.favorito === 1 ? "⭐ Favorito · Toca para ver detalles" : "Toca para ver detalles"}
+              onCalloutPress={() => setDetalleModal(lugar)}
+              anchor={{ x: 0.5, y: 1 }}
+            >
+              <View style={styles.markerWrapper}>
+                {lugar.foto ? (
+                  <View style={[styles.markerContainer, { borderColor: color }]}>
+                    <Image
+                      source={{ uri: lugar.foto }}
+                      style={styles.markerImage}
+                      resizeMode="cover"
+                    />
+                    {lugar.favorito === 1 && (
+                      <View style={styles.markerFavBadge}>
+                        <Text style={styles.markerFavIcon}>⭐</Text>
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  <View style={[styles.markerPin, { backgroundColor: color }]}>
+                    <Text style={styles.markerPinIcon}>
+                      {lugar.favorito === 1 ? "⭐" : "📍"}
+                    </Text>
+                  </View>
+                )}
+                <View style={[styles.markerPointer, { borderTopColor: color }]} />
               </View>
-            ) : undefined}
-          </Marker>
-        ))}
+            </Marker>
+          );
+        })}
       </MapView>
 
+      {/* Hint inferior */}
       <View style={styles.hint}>
         <Text style={styles.hintText}>
           Mantén presionado el mapa para agregar un lugar
         </Text>
       </View>
 
-      {/* Modal: nuevo lugar */}
+      {/* Panel superior: dropdown de lugares */}
+      <View style={styles.dropdownWrapper}>
+        <TouchableOpacity
+          style={styles.dropdownToggle}
+          onPress={() => setDropdownVisible((v) => !v)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.dropdownToggleIcon}>🗺️</Text>
+          <Text style={styles.dropdownToggleLabel}>Mis lugares</Text>
+          <View style={styles.pillRow}>
+            <View style={styles.dropdownBadge}>
+              <Text style={styles.dropdownBadgeText}>{lugares.length}</Text>
+            </View>
+            {totalFavoritos > 0 && (
+              <View style={[styles.dropdownBadge, styles.favBadge]}>
+                <Text style={styles.dropdownBadgeText}>⭐ {totalFavoritos}</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.dropdownArrow}>{dropdownVisible ? "▲" : "▼"}</Text>
+        </TouchableOpacity>
+
+        {dropdownVisible && (
+          <View style={styles.dropdownList}>
+            {/* Tabs Todos / Favoritos */}
+            <View style={styles.tabRow}>
+              <TouchableOpacity
+                style={[styles.tabBtn, filtroTab === "todos" && styles.tabBtnActive]}
+                onPress={() => setFiltroTab("todos")}
+              >
+                <Text style={[styles.tabBtnText, filtroTab === "todos" && styles.tabBtnTextActive]}>
+                  Todos ({lugares.length})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tabBtn, filtroTab === "favoritos" && styles.tabBtnActive]}
+                onPress={() => setFiltroTab("favoritos")}
+              >
+                <Text style={[styles.tabBtnText, filtroTab === "favoritos" && styles.tabBtnTextActive]}>
+                  ⭐ Favoritos ({totalFavoritos})
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false}>
+              {lugaresFiltrados.length === 0 ? (
+                <View style={styles.dropdownEmptyContainer}>
+                  <Text style={styles.dropdownEmptyIcon}>
+                    {filtroTab === "favoritos" ? "⭐" : "🏔️"}
+                  </Text>
+                  <Text style={styles.dropdownEmpty}>
+                    {filtroTab === "favoritos"
+                      ? "Aún no tienes favoritos\nToca ⭐ en un lugar para marcarlo"
+                      : "Mantén presionado el mapa\npara agregar tu primer lugar"}
+                  </Text>
+                </View>
+              ) : (
+                lugaresFiltrados.map((lugar, index) => {
+                  const color = MARKER_COLORS[index % MARKER_COLORS.length];
+                  return (
+                    <TouchableOpacity
+                      key={lugar.id}
+                      style={styles.dropdownItem}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        setDropdownVisible(false);
+                        mapRef.current?.animateToRegion(
+                          {
+                            latitude: lugar.latitud,
+                            longitude: lugar.longitud,
+                            latitudeDelta: 0.01,
+                            longitudeDelta: 0.01,
+                          },
+                          600
+                        );
+                      }}
+                    >
+                      <View style={[styles.dropdownColorDot, { backgroundColor: color }]} />
+                      {lugar.foto ? (
+                        <Image
+                          source={{ uri: lugar.foto }}
+                          style={[styles.dropdownThumb, { borderColor: color }]}
+                        />
+                      ) : (
+                        <View style={[styles.dropdownThumbPlaceholder, { borderColor: color }]}>
+                          <Text style={styles.dropdownThumbIcon}>
+                            {lugar.favorito === 1 ? "⭐" : "📍"}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={styles.dropdownItemInfo}>
+                        <View style={styles.dropdownItemNameRow}>
+                          <Text style={styles.dropdownItemText} numberOfLines={1}>
+                            {lugar.nombre}
+                          </Text>
+                          {lugar.favorito === 1 && (
+                            <Text style={styles.dropdownItemFavStar}>⭐</Text>
+                          )}
+                        </View>
+                        <Text style={styles.dropdownItemCoords}>
+                          {lugar.latitud.toFixed(4)}, {lugar.longitud.toFixed(4)}
+                        </Text>
+                      </View>
+                      <Text style={styles.dropdownItemArrow}>›</Text>
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        )}
+      </View>
+
+      {/* Modal: agregar nuevo lugar */}
       <Modal
         visible={modalVisible}
         transparent
@@ -240,29 +387,28 @@ export default function MapScreen() {
           style={styles.modalOverlay}
         >
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Nuevo lugar favorito</Text>
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle}>Nuevo lugar favorito</Text>
+              <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseIcon}>✕</Text>
+              </TouchableOpacity>
+            </View>
 
             {fotoUri ? (
               <View style={styles.fotoAsignadaContainer}>
-                <Image
-                  source={{ uri: fotoUri }}
-                  style={styles.fotoAsignada}
-                  resizeMode="cover"
-                />
+                <Image source={{ uri: fotoUri }} style={styles.fotoAsignada} resizeMode="cover" />
                 <View style={styles.fotoAsignadaActions}>
                   <TouchableOpacity
                     style={styles.fotoAccionBtn}
                     onPress={() => abrirSelectorFoto(setFotoUri)}
                   >
-                    <Text style={styles.fotoAccionText}>Cambiar</Text>
+                    <Text style={styles.fotoAccionText}>Cambiar foto</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.fotoAccionBtn, styles.fotoAccionBtnRojo]}
                     onPress={() => setFotoUri(null)}
                   >
-                    <Text style={[styles.fotoAccionText, { color: "#FF3B30" }]}>
-                      Quitar
-                    </Text>
+                    <Text style={[styles.fotoAccionText, { color: "#FF3B30" }]}>Quitar</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -274,9 +420,7 @@ export default function MapScreen() {
               >
                 <View style={styles.fotoPlaceholder}>
                   <Text style={styles.fotoIcono}>📷</Text>
-                  <Text style={styles.fotoPlaceholderText}>
-                    Toca para agregar foto
-                  </Text>
+                  <Text style={styles.fotoPlaceholderText}>Toca para agregar foto</Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -319,8 +463,39 @@ export default function MapScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{detalleModal?.nombre}</Text>
+            {/* Cabecera con nombre y botón favorito */}
+            <View style={styles.modalHeaderRow}>
+              <Text style={styles.modalTitle} numberOfLines={2}>
+                {detalleModal?.nombre}
+              </Text>
+              <TouchableOpacity
+                style={[
+                  styles.favBtn,
+                  detalleModal?.favorito === 1 && styles.favBtnActive,
+                ]}
+                onPress={() => detalleModal && handleToggleFavorito(detalleModal)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.favBtnIcon}>
+                  {detalleModal?.favorito === 1 ? "⭐" : "☆"}
+                </Text>
+                <Text style={[
+                  styles.favBtnLabel,
+                  detalleModal?.favorito === 1 && styles.favBtnLabelActive,
+                ]}>
+                  {detalleModal?.favorito === 1 ? "Favorito" : "Marcar"}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
+            {/* Coordenadas */}
+            <View style={styles.coordsRow}>
+              <Text style={styles.coordsText}>
+                📌 {detalleModal?.latitud.toFixed(5)}, {detalleModal?.longitud.toFixed(5)}
+              </Text>
+            </View>
+
+            {/* Foto */}
             {detalleModal?.foto ? (
               <Image
                 source={{ uri: detalleModal.foto }}
@@ -336,6 +511,7 @@ export default function MapScreen() {
               </View>
             )}
 
+            {/* Botón cambiar/agregar foto */}
             <TouchableOpacity
               style={styles.cambiarFotoBtn}
               onPress={() =>
@@ -348,10 +524,11 @@ export default function MapScreen() {
               }
             >
               <Text style={styles.cambiarFotoText}>
-                {detalleModal?.foto ? "📷 Cambiar foto" : "📷 Agregar foto"}
+                {detalleModal?.foto ? "📷  Cambiar foto" : "📷  Agregar foto"}
               </Text>
             </TouchableOpacity>
 
+            {/* Botones Cerrar / Eliminar */}
             <View style={styles.buttonRow}>
               <TouchableOpacity
                 style={[styles.button, styles.cancelButton]}
@@ -360,10 +537,10 @@ export default function MapScreen() {
                 <Text style={styles.cancelText}>Cerrar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.button, { backgroundColor: "#FF3B30" }]}
+                style={[styles.button, styles.deleteButton]}
                 onPress={() => detalleModal && handleEliminar(detalleModal)}
               >
-                <Text style={styles.saveText}>Eliminar</Text>
+                <Text style={styles.saveText}>🗑  Eliminar</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -383,64 +560,264 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   loadingText: { fontSize: 16, color: "#555" },
+
+  // Marcadores
+  markerWrapper: { alignItems: "center" },
+  markerContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    borderWidth: 3,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  markerImage: { width: "100%", height: "100%" },
+  markerFavBadge: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderRadius: 8,
+    width: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  markerFavIcon: { fontSize: 11 },
+  markerPin: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  markerPinIcon: { fontSize: 22 },
+  markerPointer: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopWidth: 10,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    marginTop: -1,
+  },
+
+  // Hint inferior
   hint: {
     position: "absolute",
     bottom: 24,
     alignSelf: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.58)",
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
   hintText: { color: "#fff", fontSize: 13 },
+
+  // Dropdown
+  dropdownWrapper: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    right: 64,
+    zIndex: 10,
+  },
+  dropdownToggle: {
+    backgroundColor: "#fff",
+    borderRadius: 50,
+    paddingHorizontal: 18,
+    paddingVertical: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  dropdownToggleIcon: { fontSize: 18 },
+  dropdownToggleLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1a1a1a",
+  },
+  pillRow: { flexDirection: "row", gap: 4 },
+  dropdownBadge: {
+    backgroundColor: "#007AFF",
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  favBadge: { backgroundColor: "#FF9500" },
+  dropdownBadgeText: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  dropdownArrow: { fontSize: 11, color: "#888", marginLeft: 2 },
+  dropdownList: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    marginTop: 8,
+    paddingBottom: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+    overflow: "hidden",
+  },
+
+  // Tabs dentro del dropdown
+  tabRow: {
+    flexDirection: "row",
+    margin: 12,
+    marginBottom: 4,
+    backgroundColor: "#f0f0f0",
+    borderRadius: 12,
+    padding: 3,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  tabBtnActive: { backgroundColor: "#fff" },
+  tabBtnText: { fontSize: 12, fontWeight: "600", color: "#888" },
+  tabBtnTextActive: { color: "#1a1a1a" },
+
+  dropdownEmptyContainer: {
+    alignItems: "center",
+    paddingVertical: 24,
+    gap: 8,
+  },
+  dropdownEmptyIcon: { fontSize: 32 },
+  dropdownEmpty: {
+    textAlign: "center",
+    color: "#aaa",
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  dropdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#f0f0f0",
+  },
+  dropdownColorDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  dropdownThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 2,
+  },
+  dropdownThumbPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    borderWidth: 2,
+    backgroundColor: "#f5f5f5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dropdownThumbIcon: { fontSize: 20 },
+  dropdownItemInfo: { flex: 1, gap: 2 },
+  dropdownItemNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  dropdownItemText: { fontSize: 14, fontWeight: "600", color: "#1a1a1a", flex: 1 },
+  dropdownItemFavStar: { fontSize: 13 },
+  dropdownItemCoords: { fontSize: 11, color: "#aaa" },
+  dropdownItemArrow: { fontSize: 20, color: "#ccc", marginRight: 2 },
+
+  // Modales
   modalOverlay: {
     flex: 1,
     justifyContent: "center",
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     backgroundColor: "rgba(0,0,0,0.5)",
   },
   modalCard: {
     backgroundColor: "#fff",
     borderRadius: 24,
-    padding: 28,
-    gap: 18,
+    padding: 24,
+    gap: 16,
   },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#1a1a1a",
-    marginBottom: 4,
-  },
-  markerContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 12,
-    borderWidth: 2.5,
-    borderColor: "#fff",
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  markerImage: {
-    width: "100%",
-    height: "100%",
-  },
-  fotoAsignadaContainer: {
-    width: "100%",
+  modalHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: 8,
   },
-  fotoAsignada: {
-    width: "100%",
-    height: 180,
-    borderRadius: 14,
+  modalTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1a1a1a",
   },
-  fotoAsignadaActions: {
+  modalCloseBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#f0f0f0",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalCloseIcon: { fontSize: 13, color: "#555", fontWeight: "600" },
+
+  // Botón favorito (en detalle)
+  favBtn: {
     flexDirection: "row",
-    gap: 10,
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#ddd",
+    backgroundColor: "#fafafa",
   },
+  favBtnActive: {
+    borderColor: "#FF9500",
+    backgroundColor: "#FFF8EC",
+  },
+  favBtnIcon: { fontSize: 16 },
+  favBtnLabel: { fontSize: 12, fontWeight: "600", color: "#888" },
+  favBtnLabelActive: { color: "#FF9500" },
+
+  // Coordenadas en detalle
+  coordsRow: {
+    backgroundColor: "#f7f7f7",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  coordsText: { fontSize: 12, color: "#666", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
+
+  // Fotos
+  fotoAsignadaContainer: { width: "100%", gap: 8 },
+  fotoAsignada: { width: "100%", height: 180, borderRadius: 14 },
+  fotoAsignadaActions: { flexDirection: "row", gap: 10 },
   fotoAccionBtn: {
     flex: 1,
     paddingVertical: 10,
@@ -448,17 +825,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#f0f0f0",
   },
-  fotoAccionBtnRojo: {
-    backgroundColor: "#fff0f0",
-  },
-  fotoAccionText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#333",
-  },
+  fotoAccionBtnRojo: { backgroundColor: "#fff0f0" },
+  fotoAccionText: { fontSize: 14, fontWeight: "500", color: "#333" },
   fotoSlot: {
     width: "100%",
-    height: 160,
+    height: 150,
     borderRadius: 14,
     borderWidth: 2,
     borderColor: "#ddd",
@@ -474,39 +845,38 @@ const styles = StyleSheet.create({
   },
   fotoIcono: { fontSize: 32 },
   fotoPlaceholderText: { color: "#aaa", fontSize: 14 },
-  fotoDetalle: {
-    width: "100%",
-    height: 200,
-    borderRadius: 14,
-  },
+  fotoDetalle: { width: "100%", height: 190, borderRadius: 14 },
   cambiarFotoBtn: {
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: "#007AFF",
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 13,
     alignItems: "center",
     backgroundColor: "#f0f8ff",
   },
-  cambiarFotoText: { color: "#007AFF", fontSize: 15, fontWeight: "500" },
+  cambiarFotoText: { color: "#007AFF", fontSize: 14, fontWeight: "600" },
+
+  // Inputs y botones
   input: {
-    borderWidth: 1,
-    borderColor: "#ddd",
+    borderWidth: 1.5,
+    borderColor: "#e8e8e8",
     borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 14,
     fontSize: 16,
     backgroundColor: "#f9f9f9",
     color: "#1a1a1a",
   },
-  buttonRow: { flexDirection: "row", gap: 16, marginTop: 4 },
+  buttonRow: { flexDirection: "row", gap: 12, marginTop: 4 },
   button: {
     flex: 1,
-    paddingVertical: 18,
+    paddingVertical: 15,
     borderRadius: 12,
     alignItems: "center",
   },
   cancelButton: { backgroundColor: "#f0f0f0" },
   saveButton: { backgroundColor: "#007AFF" },
-  cancelText: { color: "#555", fontSize: 16, fontWeight: "500" },
-  saveText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  deleteButton: { backgroundColor: "#FF3B30" },
+  cancelText: { color: "#555", fontSize: 15, fontWeight: "600" },
+  saveText: { color: "#fff", fontSize: 15, fontWeight: "600" },
 });
