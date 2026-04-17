@@ -7,7 +7,7 @@ export type Lugar = {
   nombre: string;
   latitud: number;
   longitud: number;
-  favorito: number; // 0 = no, 1 = sí
+  foto: string | null;
 };
 
 export function initDatabase(): void {
@@ -17,32 +17,29 @@ export function initDatabase(): void {
       nombre TEXT NOT NULL,
       latitud REAL NOT NULL,
       longitud REAL NOT NULL,
-      favorito INTEGER NOT NULL DEFAULT 0
+      foto TEXT
     );
   `);
-  // Migración: agrega la columna si la tabla ya existía sin ella
   try {
-    db.execSync('ALTER TABLE lugares ADD COLUMN favorito INTEGER NOT NULL DEFAULT 0');
+    db.execSync('ALTER TABLE lugares ADD COLUMN foto TEXT;');
   } catch {
-    // columna ya existe, ignorar
+    // columna ya existe
   }
 }
 
-export function insertLugar(nombre: string, latitud: number, longitud: number): void {
+export function insertLugar(nombre: string, latitud: number, longitud: number, foto: string | null = null): void {
   db.runSync(
-    'INSERT INTO lugares (nombre, latitud, longitud) VALUES (?, ?, ?)',
-    nombre,
-    latitud,
-    longitud
+    'INSERT INTO lugares (nombre, latitud, longitud, foto) VALUES (?, ?, ?, ?)',
+    nombre, latitud, longitud, foto
   );
+}
+
+export function updateFoto(id: number, foto: string | null): void {
+  db.runSync('UPDATE lugares SET foto = ? WHERE id = ?', foto, id);
 }
 
 export function getLugares(): Lugar[] {
   return db.getAllSync<Lugar>('SELECT * FROM lugares ORDER BY id DESC');
-}
-
-export function toggleFavorito(id: number, favorito: number): void {
-  db.runSync('UPDATE lugares SET favorito = ? WHERE id = ?', favorito, id);
 }
 
 export function deleteLugar(id: number): void {

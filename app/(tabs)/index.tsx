@@ -10,13 +10,13 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import MapView, { Marker, Region } from 'react-native-maps';
 import type { LongPressEvent } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { initDatabase, insertLugar, getLugares, deleteLugar, toggleFavorito, Lugar } from '@/lib/database';
-import LocationsButton from '@/components/ui/LocationsButton';
-import LocationsDropdown from '@/components/ui/LocationsDropdown';
+import * as ImagePicker from 'expo-image-picker';
+import { initDatabase, insertLugar, getLugares, deleteLugar, updateFoto, Lugar } from '@/lib/database';
 
 const DEFAULT_REGION: Region = {
   latitude: 4.711,
@@ -28,7 +28,9 @@ const DEFAULT_REGION: Region = {
 export default function MapScreen() {
   const [lugares, setLugares] = useState<Lugar[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
+  const [detalleModal, setDetalleModal] = useState<Lugar | null>(null);
   const [nombre, setNombre] = useState('');
+  const [fotoUri, setFotoUri] = useState<string | null>(null);
   const [selectedCoord, setSelectedCoord] = useState<{ lat: number; lng: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [dropdownVisible, setDropdownVisible] = useState(false);
@@ -39,11 +41,7 @@ export default function MapScreen() {
     initDatabase();
     cargarLugares();
     obtenerUbicacion();
-
-    // Limpiar suscripcion al desmontar
-    return () => {
-      locationSub.current?.remove();
-    };
+    return () => { locationSub.current?.remove(); };
   }, []);
 
   function cargarLugares() {
@@ -54,18 +52,11 @@ export default function MapScreen() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(
-          'Permisos denegados',
-          'No se pudo acceder a tu ubicación. El mapa usará una ubicación por defecto.'
-        );
+        Alert.alert('Permisos denegados', 'No se pudo acceder a tu ubicación. El mapa usará una ubicación por defecto.');
         setLoading(false);
         return;
       }
-
-      const loc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       mapRef.current?.animateToRegion({
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
@@ -83,47 +74,51 @@ export default function MapScreen() {
     const { latitude, longitude } = event.nativeEvent.coordinate;
     setSelectedCoord({ lat: latitude, lng: longitude });
     setNombre('');
+    setFotoUri(null);
     setModalVisible(true);
   }
 
-  function handleGuardar() {
-    if (!nombre.trim()) {
-      Alert.alert('Error', 'Ingresa un nombre para el lugar.');
-      return;
-    }
-    if (!selectedCoord) return;
+  async function abrirSelectorFoto(onResult: (uri: string) => void) {
+    Alert.alert('Agregar foto', 'Elige una opción', [
+      {
+        text: 'Cámara',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (status !== 'granted') { Alert.alert('Permiso denegado', 'Se necesita acceso a la cámara.'); return; }
+          const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.7 });
+          if (!result.canceled && result.assets[0]) onResult(result.assets[0].uri);
+        },
+      },
+      {
+        text: 'Galería',
+        onPress: async () => {
+          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (status !== 'granted') { Alert.alert('Permiso denegado', 'Se necesita acceso a la galería.'); return; }
+          const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.7 });
+          if (!result.canceled && result.assets[0]) onResult(result.assets[0].uri);
+        },
+      },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  }
 
-    insertLugar(nombre.trim(), selectedCoord.lat, selectedCoord.lng);
+  function handleGuardar() {
+    if (!nombre.trim()) { Alert.alert('Error', 'Ingresa un nombre para el lugar.'); return; }
+    if (!selectedCoord) return;
+    insertLugar(nombre.trim(), selectedCoord.lat, selectedCoord.lng, fotoUri);
     cargarLugares();
     setModalVisible(false);
     setNombre('');
+    setFotoUri(null);
     setSelectedCoord(null);
   }
 
-  function handleToggleFavorito(lugar: Lugar) {
-    toggleFavorito(lugar.id, lugar.favorito === 1 ? 0 : 1);
-    cargarLugares();
-  }
-
-  function handleSelectLugar(lugar: Lugar) {
-    mapRef.current?.animateToRegion({
-      latitude: lugar.latitud,
-      longitude: lugar.longitud,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01,
-    }, 600);
-  }
-
-  function handleEliminar(id: number, nombreLugar: string) {
-    Alert.alert('Eliminar lugar', `¿Eliminar "${nombreLugar}"?`, [
+  function handleEliminar(lugar: Lugar) {
+    Alert.alert('Eliminar lugar', `¿Eliminar "${lugar.nombre}"?`, [
       { text: 'Cancelar', style: 'cancel' },
       {
-        text: 'Eliminar',
-        style: 'destructive',
-        onPress: () => {
-          deleteLugar(id);
-          cargarLugares();
-        },
+        text: 'Eliminar', style: 'destructive',
+        onPress: () => { deleteLugar(lugar.id); cargarLugares(); setDetalleModal(null); },
       },
     ]);
   }
@@ -152,44 +147,49 @@ export default function MapScreen() {
             key={lugar.id}
             coordinate={{ latitude: lugar.latitud, longitude: lugar.longitud }}
             title={lugar.nombre}
-            description="Toca el globo para eliminar"
-            onCalloutPress={() => handleEliminar(lugar.id, lugar.nombre)}
-          />
+            description="Toca para ver detalles"
+            onCalloutPress={() => setDetalleModal(lugar)}
+          >
+            {lugar.foto ? (
+              <View style={styles.markerContainer}>
+                <Image source={{ uri: lugar.foto }} style={styles.markerImage} resizeMode="cover" />
+              </View>
+            ) : undefined}
+          </Marker>
         ))}
       </MapView>
-
-      <View style={styles.topBar}>
-        <LocationsButton
-          count={lugares.length}
-          open={dropdownVisible}
-          onPress={() => setDropdownVisible((v) => !v)}
-        />
-      </View>
-
-      <LocationsDropdown
-        visible={dropdownVisible}
-        lugares={lugares}
-        onSelect={handleSelectLugar}
-        onToggleFavorito={handleToggleFavorito}
-        onClose={() => setDropdownVisible(false)}
-      />
 
       <View style={styles.hint}>
         <Text style={styles.hintText}>Mantén presionado el mapa para agregar un lugar</Text>
       </View>
 
-      <Modal
-        visible={modalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalOverlay}
-        >
-          <View style={styles.modalContainer}>
+      {/* Modal: nuevo lugar */}
+      <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={() => setModalVisible(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Nuevo lugar favorito</Text>
+
+            {fotoUri ? (
+              <View style={styles.fotoAsignadaContainer}>
+                <Image source={{ uri: fotoUri }} style={styles.fotoAsignada} resizeMode="cover" />
+                <View style={styles.fotoAsignadaActions}>
+                  <TouchableOpacity style={styles.fotoAccionBtn} onPress={() => abrirSelectorFoto(setFotoUri)}>
+                    <Text style={styles.fotoAccionText}>Cambiar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.fotoAccionBtn, styles.fotoAccionBtnRojo]} onPress={() => setFotoUri(null)}>
+                    <Text style={[styles.fotoAccionText, { color: '#FF3B30' }]}>Quitar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.fotoSlot} onPress={() => abrirSelectorFoto(setFotoUri)} activeOpacity={0.8}>
+                <View style={styles.fotoPlaceholder}>
+                  <Text style={styles.fotoIcono}>📷</Text>
+                  <Text style={styles.fotoPlaceholderText}>Toca para agregar foto</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
             <TextInput
               style={styles.input}
               placeholder="Nombre del lugar"
@@ -200,116 +200,185 @@ export default function MapScreen() {
               returnKeyType="done"
               onSubmitEditing={handleGuardar}
             />
+
             <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={[styles.button, styles.cancelButton]}
-                onPress={() => setModalVisible(false)}
-              >
+              <TouchableOpacity style={[styles.button, styles.cancelButton]} onPress={() => setModalVisible(false)}>
                 <Text style={styles.cancelText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.button, styles.saveButton]}
-                onPress={handleGuardar}
-              >
+              <TouchableOpacity style={[styles.button, styles.saveButton]} onPress={handleGuardar}>
                 <Text style={styles.saveText}>Guardar</Text>
               </TouchableOpacity>
             </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Modal: detalle de lugar guardado */}
+      <Modal visible={!!detalleModal} transparent animationType="fade" onRequestClose={() => setDetalleModal(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{detalleModal?.nombre}</Text>
+
+            {detalleModal?.foto
+              ? <Image source={{ uri: detalleModal.foto }} style={styles.fotoDetalle} resizeMode="cover" />
+              : (
+                <View style={styles.fotoSlot}>
+                  <View style={styles.fotoPlaceholder}>
+                    <Text style={styles.fotoIcono}>📷</Text>
+                    <Text style={styles.fotoPlaceholderText}>Sin foto</Text>
+                  </View>
+                </View>
+              )
+            }
+
+            <TouchableOpacity
+              style={styles.cambiarFotoBtn}
+              onPress={() => detalleModal && abrirSelectorFoto((uri) => {
+                updateFoto(detalleModal.id, uri);
+                setDetalleModal({ ...detalleModal, foto: uri });
+                cargarLugares();
+              })}
+            >
+              <Text style={styles.cambiarFotoText}>
+                {detalleModal?.foto ? '📷 Cambiar foto' : '📷 Agregar foto'}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={[styles.button, styles.cancelButton]} onPress={() => setDetalleModal(null)}>
+                <Text style={styles.cancelText}>Cerrar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.button, { backgroundColor: '#FF3B30' }]} onPress={() => detalleModal && handleEliminar(detalleModal)}>
+                <Text style={styles.saveText}>Eliminar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  map: {
-    flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 16,
-    color: '#555',
-  },
-  topBar: {
-    position: 'absolute',
-    top: 56,
-    left: 16,
-    right: 16,
-    zIndex: 10,
-  },
+  container: { flex: 1 },
+  map: { flex: 1 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
+  loadingText: { fontSize: 16, color: '#555' },
   hint: {
-    position: 'absolute',
-    bottom: 24,
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    position: 'absolute', bottom: 24, alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20,
+    paddingHorizontal: 16, paddingVertical: 8,
   },
-  hintText: {
-    color: '#fff',
-    fontSize: 13,
-  },
+  hintText: { color: '#fff', fontSize: 13 },
   modalOverlay: {
     flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  modalContainer: {
+  modalCard: {
     backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
-    gap: 16,
-    paddingBottom: 40,
+    borderRadius: 24,
+    padding: 28,
+    gap: 18,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: '700',
     color: '#1a1a1a',
+    marginBottom: 4,
   },
+  markerContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+    borderWidth: 2.5,
+    borderColor: '#fff',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  markerImage: {
+    width: '100%',
+    height: '100%',
+  },
+  fotoAsignadaContainer: {
+    width: '100%',
+    gap: 8,
+  },
+  fotoAsignada: {
+    width: '100%',
+    height: 180,
+    borderRadius: 14,
+  },
+  fotoAsignadaActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  fotoAccionBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: '#f0f0f0',
+  },
+  fotoAccionBtnRojo: {
+    backgroundColor: '#fff0f0',
+  },
+  fotoAccionText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333',
+  },
+  fotoSlot: {
+    width: '100%',
+    height: 160,
+    borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#ddd',
+    borderStyle: 'dashed',
+    overflow: 'hidden',
+  },
+  fotoPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#f7f7f7',
+  },
+  fotoIcono: { fontSize: 32 },
+  fotoPlaceholderText: { color: '#aaa', fontSize: 14 },
+  fotoDetalle: {
+    width: '100%',
+    height: 200,
+    borderRadius: 14,
+  },
+  cambiarFotoBtn: {
+    borderWidth: 1,
+    borderColor: '#007AFF',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: '#f0f8ff',
+  },
+  cambiarFotoText: { color: '#007AFF', fontSize: 15, fontWeight: '500' },
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     fontSize: 16,
     backgroundColor: '#f9f9f9',
     color: '#1a1a1a',
   },
-  buttonRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  button: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  cancelButton: {
-    backgroundColor: '#f0f0f0',
-  },
-  saveButton: {
-    backgroundColor: '#007AFF',
-  },
-  cancelText: {
-    color: '#555',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  saveText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  buttonRow: { flexDirection: 'row', gap: 16, marginTop: 4 },
+  button: { flex: 1, paddingVertical: 18, borderRadius: 12, alignItems: 'center' },
+  cancelButton: { backgroundColor: '#f0f0f0' },
+  saveButton: { backgroundColor: '#007AFF' },
+  cancelText: { color: '#555', fontSize: 16, fontWeight: '500' },
+  saveText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });

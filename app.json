@@ -45,7 +45,14 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Permite acceder a tus fotos para adjuntarlas a tus lugares favoritos.",
+          "cameraPermission": "Permite usar la cámara para tomar fotos de tus lugares favoritos."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
